@@ -19,7 +19,8 @@ jobs:
           python-version: "3.9"
 
       - name: Install dependencies
-        run: pip install pandas requests watchdog
+        run: |
+          pip install pandas requests watchdog
 
       - name: Run Shopify updater
         env:
