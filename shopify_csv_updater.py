@@ -1,69 +1,79 @@
-import pandas as pd
-import requests
-import time
 import os
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
+import requests
+import pandas as pd
+import base64
 
-# Shopify API credentials
-SHOPIFY_STORE_URL = "https://www.tajtreasures.com"
-ACCESS_TOKEN = "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"
-CSV_FILE_PATH = "/mnt/data/Shopify_Product_Catalog_Modified.csv"
+# 🔹 Load secrets from environment variables
+GITHUB_REPO = "TajTreasures/Shopify-CSV-Updater"
+CSV_FILE_NAME = "Shopify_Product_Catalog_Modified.csv"
+GITHUB_ACCESS_TOKEN = os.getenv("GH_ACCESS_TOKEN")  # ✅ Corrected GitHub Token Name
+SHOPIFY_ACCESS_TOKEN = os.getenv("SHOPIFY_ACCESS_TOKEN")  # ✅ Shopify Token
 
-# Shopify API endpoint
-HEADERS = {
-    "Content-Type": "application/json",
-    "X-Shopify-Access-Token": ACCESS_TOKEN,
-}
+# 🔹 Shopify API Details
+SHOPIFY_STORE_URL = "https://b4ksa0-yv.myshopify.com"
+SHOPIFY_API_VERSION = "2024-01"
+SHOPIFY_API_URL = f"{SHOPIFY_STORE_URL}/admin/api/{SHOPIFY_API_VERSION}/products.json"
 
-# Function to update products in Shopify
-def update_shopify_product(product_id, data):
-    url = f"{SHOPIFY_STORE_URL}/admin/api/2023-04/products/{product_id}.json"
-    response = requests.put(url, json=data, headers=HEADERS)
+# 🔹 Step 1: Download CSV from GitHub
+def download_csv_from_github():
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{CSV_FILE_NAME}"
+    headers = {"Authorization": f"token {GITHUB_ACCESS_TOKEN}"}
+
+    response = requests.get(url, headers=headers)
     if response.status_code == 200:
-        print(f"Updated product {product_id} successfully.")
+        content = response.json()
+        csv_data = base64.b64decode(content["content"]).decode("utf-8")
+
+        with open(CSV_FILE_NAME, "w", encoding="utf-8") as f:
+            f.write(csv_data)
+
+        print(f"✅ CSV file '{CSV_FILE_NAME}' downloaded successfully from GitHub!")
+        return CSV_FILE_NAME
     else:
-        print(f"Failed to update product {product_id}: {response.text}")
+        print(f"❌ Failed to download CSV. Response: {response.json()}")
+        return None
 
-# Function to process CSV and update Shopify
-def process_csv():
-    df = pd.read_csv(CSV_FILE_PATH)
+# 🔹 Step 2: Process CSV
+def process_csv(csv_path):
+    df = pd.read_csv(csv_path)
+    print("📌 CSV Data Preview:")
+    print(df.head())  # Show first few rows
+
+    products = []
     for _, row in df.iterrows():
-        product_id = row.get("Product ID")
-        if pd.notna(product_id):
-            data = {
-                "product": {
-                    "id": int(product_id),
-                    "title": row.get("Title"),
-                    "variants": [{
-                        "price": row.get("Price"),
-                        "inventory_quantity": row.get("Stock")
-                    }]
+        product = {
+            "title": row["Title"],
+            "body_html": row["Description"],
+            "vendor": row["Vendor"],
+            "product_type": row["Type"],
+            "variants": [
+                {
+                    "price": row["Price"],
+                    "sku": row["SKU"]
                 }
-            }
-            update_shopify_product(product_id, data)
+            ]
+        }
+        products.append(product)
 
-# Watchdog event handler to monitor CSV changes
-class CSVHandler(FileSystemEventHandler):
-    def on_modified(self, event):
-        if event.src_path == CSV_FILE_PATH:
-            print("CSV file changed. Updating Shopify...")
-            process_csv()
+    return products
 
+# 🔹 Step 3: Upload Products to Shopify
+def upload_to_shopify(products):
+    headers = {
+        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
+        "Content-Type": "application/json"
+    }
+
+    for product in products:
+        response = requests.post(SHOPIFY_API_URL, json={"product": product}, headers=headers)
+        if response.status_code == 201:
+            print(f"✅ Product '{product['title']}' uploaded successfully!")
+        else:
+            print(f"❌ Failed to upload product '{product['title']}'. Response: {response.json()}")
+
+# 🔹 Run the Full Workflow
 if __name__ == "__main__":
-    # Initial CSV processing
-    print("Starting initial CSV processing...")
-    process_csv()
-    
-    # Set up file watcher for automatic updates
-    event_handler = CSVHandler()
-    observer = Observer()
-    observer.schedule(event_handler, path=os.path.dirname(CSV_FILE_PATH), recursive=False)
-    observer.start()
-    
-    try:
-        while True:
-            time.sleep(10)
-    except KeyboardInterrupt:
-        observer.stop()
-    observer.join()
+    csv_file = download_csv_from_github()
+    if csv_file:
+        products = process_csv(csv_file)
+        upload_to_shopify(products)
