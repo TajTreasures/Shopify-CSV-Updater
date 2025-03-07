@@ -4,4 +4,4 @@ shopify_python_api
 google-auth
 google-auth-oauthlib
 google-auth-httplib2
-googleapiclient
+google-api-python-client  # ✅ Corrected package name
