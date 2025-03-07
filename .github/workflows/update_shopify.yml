@@ -1,54 +1,38 @@
-name: Shopify CSV Updater
+name: Auto Update Shopify CSV
 
 on:
-  push:
-    branches:
-      - main
   schedule:
-    - cron: "0 0 * * *"  # Runs daily at midnight (UTC)
-  workflow_dispatch:  # Allows manual execution
+    - cron: '0 * * * *' # Runs every hour
+  workflow_dispatch: # Allows manual trigger
 
 jobs:
-  update-shopify:
+  update-csv:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Install Python Dependencies
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Download CSV from Google Drive
-        run: |
-          FILE_ID="1WD1nIzMX3ZwbEjFr4fpIjgeGS3VK6h0c"  # Your actual Google Drive File ID
-          FILE_NAME="Shopify_Product_Catalog_Modified.csv"
-
-          # Fetch file using Google Drive API
-          wget --no-check-certificate "https://drive.google.com/uc?export=download&id=${FILE_ID}" -O ${FILE_NAME}
-
-          # Verify if file downloaded
-          if [ ! -f "$FILE_NAME" ]; then
-            echo "❌ CSV file download failed!"
-            exit 1
-          fi
-          echo "✅ CSV file downloaded successfully: $FILE_NAME"
-
-      - name: Run CSV Processing Script
+      - name: Run CSV Update Script
         run: python shopify_csv_updater.py
 
-      - name: Commit & Push Updated CSV to GitHub
+      - name: Commit and Push Changes
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          git add Shopify_Product_Catalog_Modified.csv
+          git add .
+          if git diff-index --quiet HEAD --; then
+            echo "No changes to commit. Exiting."
+            exit 0
+          fi
           git commit -m "🔄 Auto-update CSV from Google Drive"
           git push origin main
-
-      - name: Deploy to Shopify
-        run: |
-          echo "🚀 Deploying CSV to Shopify..."
-          python shopify_csv_updater.py  # Your Python script handling Shopify updates
